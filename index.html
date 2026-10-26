@@ -70,7 +70,7 @@
       </div>
 
       <div class="input-wrap">
-        <textarea id="text" rows="3" placeholder="พิมพ์หรือวางข้อความ ลิงก์ หรือตัวเลขที่นี่…" spellcheck="false" enterkeyhint="done"></textarea>
+        <textarea id="text" rows="3" placeholder="พิมพ์หรือวางข้อความ ลิงก์ หรือตัวเลข…&#10;อยากได้หลายอัน ใส่ทีละบรรทัด เช่น&#10;1234&#10;2345" spellcheck="false" enterkeyhint="done"></textarea>
         <div class="input-tools">
           <span class="count" id="count">0 ตัวอักษร</span>
           <button class="ghost sm" id="pasteBtn" title="วางจากคลิปบอร์ด">วาง</button>
@@ -78,9 +78,17 @@
         </div>
       </div>
 
+      <div class="split-row" id="splitRow" hidden>
+        <span class="mini">แยกเป็นหลายอัน:</span>
+        <div class="seg">
+          <button data-v="line">ทีละบรรทัด</button><button data-v="space">เว้นวรรค / ,</button><button data-v="none">รวมเป็นอันเดียว</button>
+        </div>
+        <p class="mini split-tip">ใส่ชื่อแต่ละอันได้: <code>1234 | น้ำดื่ม</code> หรือก๊อป 2 คอลัมน์จาก Excel มาวาง</p>
+      </div>
+
       <div class="labels">
         <label>
-          <span class="lab-title"><span class="lab-ico" aria-hidden="true">↑</span> หัวข้อด้านบนรูป <span class="opt">ไม่ใส่ก็ได้</span></span>
+          <span class="lab-title"><span class="lab-ico" aria-hidden="true">↑</span> หัวข้อด้านบนรูป <span class="opt">ไม่ใส่ก็ได้ · หลายอันจะใช้หัวข้อเดียวกัน</span></span>
           <input id="topText" maxlength="80" placeholder="เช่น Wi‑Fi ร้าน, เมนูอาหาร, ชำระเงิน" enterkeyhint="next">
         </label>
         <label>
@@ -108,11 +116,11 @@
       <div class="actions">
         <button class="primary" id="copyImg" disabled>
           <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
-          คัดลอกรูป
+          <span class="lbl">คัดลอกรูป</span>
         </button>
         <button class="primary alt" id="savePng" disabled>
           <svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
-          บันทึก PNG
+          <span class="lbl">บันทึก PNG</span>
         </button>
         <button class="ghost" id="shareBtn" disabled hidden>แชร์ / บันทึกลงรูปภาพ</button>
         <button class="ghost" id="saveSvg" disabled>SVG</button>

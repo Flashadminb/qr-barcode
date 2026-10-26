@@ -39,7 +39,7 @@
     l: { qr: 1200, bar: 5, bw: 9 },
   };
 
-  const DEFAULTS = { fmt: 'qr', fg: '#1f1f1f', bg: '#ffffff', transparent: false, size: 'm', ec: 'M', showText: true, barH: 100 };
+  const DEFAULTS = { split: 'line', fmt: 'qr', fg: '#1f1f1f', bg: '#ffffff', transparent: false, size: 'm', ec: 'M', showText: true, barH: 100 };
   const LS_SET = 'qrb.settings.v1', LS_HIST = 'qrb.history.v1';
   const HIST_MAX = 150;
 
@@ -51,6 +51,7 @@
 
   let S = { ...DEFAULTS, ...store.get(LS_SET, {}) };
   if (!byId[S.fmt]) S.fmt = 'qr';
+  if (!['line', 'space', 'none'].includes(S.split)) S.split = 'line';
   let history = store.get(LS_HIST, []);
   let logoImg = null;
   let current = null; // { canvas, svg(), fmt, text }
@@ -195,8 +196,7 @@
     return lines;
   }
 
-  function decorate(out) {
-    const top = el.topText.value.trim(), bot = el.bottomText.value.trim();
+  function decorate(out, top = el.topText.value.trim(), bot = el.bottomText.value.trim()) {
     if (!top && !bot) return out;
     const src = out.canvas, W = src.width;
     const base = Math.max(15, Math.round(Math.min(W, 1000) * 0.06));
@@ -258,7 +258,31 @@
   }
 
   // ---------- วาดหน้าจอ ----------
-  function renderChips(text) {
+  // ---------- แยกเป็นหลายโค้ด ----------
+  // line = 1 บรรทัด 1 โค้ด (ใส่ "รหัส | ชื่อ" หรือก๊อป 2 คอลัมน์จาก Excel ได้), space = แยกด้วยเว้นวรรค/จุลภาค, none = โค้ดเดียว
+  const BATCH_MAX = 300;
+  function parseItems(raw = el.text.value) {
+    if (!raw.trim()) return [];
+    if (S.split === 'none') return [{ text: raw, cap: '' }];
+    if (S.split === 'space') return raw.split(/[\s,]+/).filter(Boolean).map(text => ({ text, cap: '' }));
+    const lines = raw.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length === 1 && !/[|\t]/.test(lines[0])) return [{ text: raw.trim(), cap: '' }];
+    return lines.map(l => {
+      const i = l.search(/[|\t]/);
+      return i > 0 ? { text: l.slice(0, i).trim(), cap: l.slice(i + 1).trim() } : { text: l.trim(), cap: '' };
+    }).filter(it => it.text);
+  }
+
+  const countItems = h => { const keep = S.split; S.split = h.split || 'line'; const n = parseItems(h.text).length; S.split = keep; return n; };
+
+  function renderSplitUI(raw) {
+    const box = $('splitRow');
+    box.hidden = !/[\n\t ,|]/.test(raw.trim());
+    box.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === S.split));
+  }
+
+  function renderChips(items) {
+    const text = items[0]?.text || '';
     const rec = recommend(text);
     for (const [box, group] of [[el.chips2d, '2d'], [el.chips1d, '1d']]) {
       box.innerHTML = '';
@@ -267,8 +291,8 @@
         b.className = 'chip' + (f.id === S.fmt ? ' active' : '');
         b.dataset.fmt = f.id;
         b.innerHTML = `<span class="c-name">${esc(f.name)}</span><span class="c-use">${esc(f.use)}</span>`;
-        if (text && (f.engine === 'jsb' || (f.group === '1d' && !isAscii(text)))) {
-          try { makeJsbCheck(f, text); } catch { b.classList.add('bad'); }
+        if (text && f.group === '1d') {
+          try { items.slice(0, BATCH_MAX).forEach(it => makeJsbCheck(f, it.text)); } catch { b.classList.add('bad'); }
         }
         if (f.id === rec) { const r = document.createElement('span'); r.className = 'rec'; r.textContent = 'แนะนำ'; b.appendChild(r); }
         box.appendChild(b);
@@ -289,22 +313,30 @@
   function setActionsEnabled(on) { el.actionBtns.forEach(b => { b.disabled = !on; }); }
 
   function renderMain() {
-    const text = el.text.value;
+    const raw = el.text.value;
     const f = byId[S.fmt];
-    el.count.textContent = `${[...text].length.toLocaleString()} ตัวอักษร`;
-    el.badge.textContent = f.name;
+    let items = parseItems(raw);
+    const isBatch = items.length > 1;
+    el.count.textContent = isBatch ? `${items.length.toLocaleString()} รายการ` : `${[...raw].length.toLocaleString()} ตัวอักษร`;
+    el.badge.textContent = isBatch ? `${f.name} × ${items.length}` : f.name;
     document.body.classList.toggle('is-bar', f.group === '1d');
     document.body.classList.toggle('is-2d', f.group === '2d');
+    document.body.classList.toggle('is-batch', isBatch);
     el.preview.classList.toggle('checker', S.transparent);
-    renderChips(text);
+    el.preview.classList.toggle('batch', isBatch);
+    renderSplitUI(raw);
+    renderChips(items);
+    setBatchLabels(isBatch, items.length);
 
     current = null;
     el.stage.hidden = el.err.hidden = true; el.empty.hidden = true; el.tapHint.hidden = true;
     el.preview.classList.remove('ready'); el.dim.textContent = '';
-    if (!text) { el.empty.hidden = false; setActionsEnabled(false); updateMbar(); return; }
+    if (!items.length) { el.empty.hidden = false; setActionsEnabled(false); updateMbar(); return; }
+    if (isBatch) return renderBatch(items.slice(0, BATCH_MAX), items.length);
+    const text = items[0].text;
 
     try {
-      const out = decorate(build(S.fmt, text));
+      const out = decorate(build(S.fmt, text), undefined, items[0].cap || undefined);
       // แสดงเป็นรูป <img> เพื่อให้มือถือกดค้างแล้ว "บันทึกรูป" ได้
       const img = new Image();
       img.src = out.canvas.toDataURL('image/png');
@@ -331,11 +363,122 @@
     }
   }
 
+  // ---------- โหมดหลายอัน ----------
+  function renderBatch(items, total) {
+    const grid = document.createElement('div');
+    grid.className = 'b-grid';
+    const done = [];
+    let needLoad = false, firstErr = null;
+    items.forEach((it, i) => {
+      const card = document.createElement('div');
+      card.className = 'b-item';
+      card.dataset.i = i;
+      try {
+        const out = decorate(build(S.fmt, it.text), undefined, it.cap || undefined);
+        const dataUrl = out.canvas.toDataURL('image/png');
+        const idx = done.push({ ...out, text: it.text, cap: it.cap, dataUrl, n: i + 1 }) - 1;
+        card.dataset.k = idx;
+        card.title = 'แตะเพื่อคัดลอกรูปนี้';
+        card.innerHTML = `<span class="b-no">${i + 1}</span><img src="${dataUrl}" alt="" class="${out.pixel ? 'pixel' : ''}">
+          <span class="b-text">${esc(it.cap || it.text)}</span>
+          <button class="b-save" data-k="${idx}" title="บันทึกรูปนี้" aria-label="บันทึกรูปนี้">↓</button>`;
+      } catch (e) {
+        if (e.message === 'loading') needLoad = true;
+        firstErr = firstErr || e;
+        card.classList.add('bad');
+        card.innerHTML = `<span class="b-no">${i + 1}</span><span class="b-err">${e.message === 'loading' ? 'กำลังโหลด…' : 'ใช้ไม่ได้'}</span>
+          <span class="b-text">${esc(it.text)}</span>`;
+      }
+      grid.appendChild(card);
+    });
+    if (needLoad) loadBwip().then(() => renderAll(true)).catch(() => toast('โหลดไม่สำเร็จ ตรวจสอบอินเทอร์เน็ต', true));
+
+    el.stage.replaceChildren(grid);
+    el.stage.hidden = false;
+    const bad = items.length - done.length;
+    el.dim.textContent = `สร้างได้ ${done.length}/${items.length} อัน` + (total > items.length ? ` (แสดง ${BATCH_MAX} อันแรก)` : '');
+    if (bad && firstErr && !needLoad) {
+      el.err.innerHTML = `${bad} รายการใช้กับ ${esc(byId[S.fmt].name)} ไม่ได้` + (firstErr.hint ? `<small>${esc(firstErr.hint)}</small>` : '');
+      el.err.hidden = false;
+    }
+    if (!done.length) { setActionsEnabled(false); el.actionBtns[3].disabled = false; updateMbar(); return; }
+    el.preview.classList.add('ready');
+    current = { batch: true, items: done, fmt: S.fmt, text: el.text.value, dataUrl: done[0].dataUrl, canvas: null };
+    setActionsEnabled(true);
+    $('saveSvg').disabled = false;
+    updateMbar();
+  }
+
+  // ปุ่มเปลี่ยนชื่อตามโหมด
+  const LABELS = {
+    copyImg: ['คัดลอกรูป', 'คัดลอกรูปรวม'], savePng: ['บันทึก PNG', 'บันทึก ZIP ({n} รูป)'],
+    saveSvg: ['SVG', 'รูปรวมเป็นภาพเดียว'], printBtn: ['พิมพ์', 'พิมพ์ทั้งหมด'],
+    shareBtn: ['แชร์ / บันทึกลงรูปภาพ', 'แชร์ทั้ง {n} รูป / บันทึกลงรูปภาพ'], mCopy: ['คัดลอกรูป', 'คัดลอกรูปรวม'], mSave: ['บันทึก', 'บันทึก {n} รูป'],
+  };
+  function setBatchLabels(isBatch, n) {
+    for (const [id, [one, many]] of Object.entries(LABELS)) {
+      const b = $(id), lbl = b.querySelector('.lbl') || b;
+      lbl.textContent = isBatch ? many.replace('{n}', n) : one;
+    }
+  }
+
+  // รวมทุกโค้ดเป็นภาพเดียว (เหมือนแผ่นสติกเกอร์)
+  function makeSheet(items) {
+    const n = items.length;
+    const cols = Math.min(n, byId[S.fmt].group === '1d' ? 3 : 4);
+    const rows = Math.ceil(n / cols);
+    const cw = Math.max(...items.map(it => it.canvas.width)), ch = Math.max(...items.map(it => it.canvas.height));
+    const gap = Math.round(cw * 0.08);
+    let W = cols * cw + (cols + 1) * gap, H = rows * ch + (rows + 1) * gap;
+    const k = Math.min(1, 8000 / W, 16000 / H);
+    const c = document.createElement('canvas');
+    c.width = Math.round(W * k); c.height = Math.round(H * k);
+    const ctx = c.getContext('2d');
+    if (!S.transparent) { ctx.fillStyle = S.bg; ctx.fillRect(0, 0, c.width, c.height); }
+    ctx.imageSmoothingEnabled = k < 1;
+    items.forEach((it, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const x = gap + col * (cw + gap) + (cw - it.canvas.width) / 2;
+      const y = gap + row * (ch + gap) + (ch - it.canvas.height) / 2;
+      ctx.drawImage(it.canvas, x * k, y * k, it.canvas.width * k, it.canvas.height * k);
+    });
+    return c;
+  }
+
+  // ZIP แบบไม่บีบอัด (PNG บีบอัดอยู่แล้ว) — ไม่ต้องใช้ไลบรารีเพิ่ม
+  const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = d => { let c = 0xFFFFFFFF; for (let i = 0; i < d.length; i++) c = CRC_T[(c ^ d[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function makeZip(files) {
+    const enc = new TextEncoder(), parts = [], central = [];
+    let off = 0;
+    for (const f of files) {
+      const name = enc.encode(f.name), crc = crc32(f.data), sz = f.data.length;
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+      lh.setUint16(12, 33, true); lh.setUint32(14, crc, true); lh.setUint32(18, sz, true); lh.setUint32(22, sz, true);
+      lh.setUint16(26, name.length, true);
+      parts.push(lh, name, f.data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+      ch.setUint16(14, 33, true); ch.setUint32(16, crc, true); ch.setUint32(20, sz, true); ch.setUint32(24, sz, true);
+      ch.setUint16(28, name.length, true); ch.setUint32(42, off, true);
+      central.push(ch, name);
+      off += 30 + name.length + sz;
+    }
+    const cdSize = central.reduce((a, p) => a + p.byteLength, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, off, true);
+    return new Blob([...parts, ...central, end], { type: 'application/zip' });
+  }
+  const slug = t => t.replace(/^https?:\/\//, '').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 32) || 'code';
+  const itemName = it => `${String(it.n).padStart(3, '0')}-${slug(it.cap || it.text)}.png`;
+
   let galleryTimer;
   function renderGallery() {
     clearTimeout(galleryTimer);
     galleryTimer = setTimeout(() => {
-      const text = el.text.value;
+      const text = parseItems()[0]?.text || '';
       el.galleryCard.hidden = !text;
       if (!text) return;
       const needBwip = !window.bwipjs;
@@ -372,7 +515,7 @@
     const text = el.text.value.trim();
     if (!text) return;
     const now = Date.now();
-    const extra = { fmt: S.fmt, top: el.topText.value.trim(), bot: el.bottomText.value.trim(), t: now };
+    const extra = { split: S.split, fmt: S.fmt, top: el.topText.value.trim(), bot: el.bottomText.value.trim(), t: now };
     const same = history.findIndex(h => h.text === text);
     if (same >= 0) {
       const [h] = history.splice(same, 1);
@@ -419,7 +562,7 @@
         <button class="h-main" data-act="load" title="${esc(h.text)}">
           ${h.top || h.bot ? `<span class="h-label">${esc([h.top, h.bot].filter(Boolean).join(' · '))}</span>` : ''}
           <span class="h-text">${esc(h.text.replace(/\s+/g, ' '))}</span>
-          <span class="h-meta">${esc(byId[h.fmt]?.name || 'QR Code')} · ${timeAgo(h.t)}</span>
+          <span class="h-meta">${esc(byId[h.fmt]?.name || 'QR Code')}${(n => n > 1 ? ` × ${n} อัน` : '')(countItems(h))} · ${timeAgo(h.t)}</span>
         </button>
         <button class="h-btn ${h.pin ? 'pinned' : ''}" data-act="pin" title="${h.pin ? 'เลิกปักหมุด' : 'ปักหมุด'}">${h.pin ? '★' : '☆'}</button>
         <button class="h-btn" data-act="copy" title="คัดลอกข้อความ">⧉</button>
@@ -436,6 +579,7 @@
       setTemplate('text');
       el.text.value = h.text; draftId = null;
       el.topText.value = h.top || ''; el.bottomText.value = h.bot || '';
+      if (h.split) S.split = h.split;
       if (byId[h.fmt]) setFmt(h.fmt, false);
       renderAll(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -453,10 +597,11 @@
   // ---------- ปุ่มต่างๆ ----------
   function fileName(ext) {
     const label = el.topText.value.trim() || el.bottomText.value.trim();
-    const base = (label || current?.text || 'code').replace(/^https?:\/\//, '').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 32) || 'code';
+    const base = slug(label || (current?.batch ? `${current.items.length}-codes` : current?.text) || 'code');
     return `${current.fmt === 'qr' ? 'qr' : current.fmt.toLowerCase()}-${base}.${ext}`;
   }
   const canvasBlob = c => new Promise(r => c.toBlob(r, 'image/png'));
+  const blobBytes = async b => new Uint8Array(await b.arrayBuffer());
 
   function download(blob, name) {
     const a = document.createElement('a');
@@ -464,27 +609,46 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
-
-  async function copyImage() {
-    if (!current) return;
+  // รูปหลัก: โหมดเดียว = รูปนั้น, โหมดหลายอัน = รูปรวม
+  function mainCanvas() {
+    if (!current) return null;
+    if (current.batch) return current.sheet || (current.sheet = makeSheet(current.items));
+    return current.canvas;
+  }
+  async function copyCanvas(canvas, name, msg) {
     el.preview.classList.remove('flash'); void el.preview.offsetWidth; el.preview.classList.add('flash');
     try {
       if (!navigator.clipboard?.write || !window.ClipboardItem) throw 0;
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': canvasBlob(current.canvas) })]);
-      toast(isTouch ? 'คัดลอกรูปแล้ว — กดค้างในแชทเพื่อวาง' : 'คัดลอกรูปแล้ว — วางได้เลย (Ctrl+V)');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': canvasBlob(canvas) })]);
+      toast(msg + (isTouch ? ' — กดค้างในแชทเพื่อวาง' : ' — วางได้เลย (Ctrl+V)'));
     } catch {
-      download(await canvasBlob(current.canvas), fileName('png'));
+      download(await canvasBlob(canvas), name);
       toast('เบราว์เซอร์นี้คัดลอกรูปไม่ได้ จึงบันทึกเป็นไฟล์ให้แทน');
     }
     saveHistory(true);
   }
+  function copyImage() {
+    if (!current) return;
+    copyCanvas(mainCanvas(), fileName('png'), current.batch ? `คัดลอกรูปรวม ${current.items.length} อันแล้ว` : 'คัดลอกรูปแล้ว');
+  }
+  async function saveZip() {
+    toast('กำลังเตรียมไฟล์…');
+    const files = await Promise.all(current.items.map(async it => ({ name: itemName(it), data: await blobBytes(await canvasBlob(it.canvas)) })));
+    download(makeZip(files), fileName('zip'));
+    toast(`บันทึก ZIP แล้ว (${files.length} รูป)`); saveHistory(true);
+  }
   async function savePng() {
     if (!current) return;
+    if (current.batch) return saveZip();
     download(await canvasBlob(current.canvas), fileName('png'));
     toast('บันทึก PNG แล้ว'); saveHistory(true);
   }
-  function saveSvg() {
+  async function saveSvg() {
     if (!current) return;
+    if (current.batch) {
+      download(await canvasBlob(mainCanvas()), fileName('png'));
+      toast('บันทึกรูปรวมแล้ว'); saveHistory(true); return;
+    }
     download(new Blob([current.svg()], { type: 'image/svg+xml' }), fileName('svg'));
     toast('บันทึก SVG แล้ว'); saveHistory(true);
   }
@@ -495,32 +659,55 @@
       document.execCommand('copy'); ta.remove(); toast('คัดลอกข้อความแล้ว');
     }
   }
+  async function shareFiles() {
+    const list = current.batch ? current.items : [{ ...current, n: 1 }];
+    return Promise.all(list.map(async it => new File([await canvasBlob(it.canvas)],
+      current.batch ? itemName(it) : fileName('png'), { type: 'image/png' })));
+  }
+  // คืนค่า false ถ้าแชร์ไฟล์ไม่ได้
   async function share() {
-    if (!current) return;
-    const file = new File([await canvasBlob(current.canvas)], fileName('png'), { type: 'image/png' });
-    try {
-      if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file] });
-      else await navigator.share({ text: current.text });
-      saveHistory(true);
-    } catch { /* ผู้ใช้กดยกเลิก */ }
+    if (!current) return true;
+    const files = await shareFiles();
+    if (!navigator.canShare?.({ files })) return false;
+    try { await navigator.share({ files }); saveHistory(true); } catch { /* ผู้ใช้กดยกเลิก */ }
+    return true;
   }
   function printCode() {
     if (!current) return;
-    const url = current.dataUrl;
     const w = window.open('', '_blank');
     if (!w) return toast('เบราว์เซอร์บล็อกหน้าต่างพิมพ์', true);
-    w.document.write(`<!doctype html><title>${esc(current.text.slice(0, 40))}</title><style>body{margin:0;display:grid;place-items:center;min-height:100vh}img{max-width:80vw;max-height:80vh;image-rendering:pixelated}</style><img src="${url}" onload="setTimeout(()=>{print()},100)">`);
+    const imgs = (current.batch ? current.items : [current]).map(it => `<div class="c"><img src="${it.dataUrl}"></div>`).join('');
+    const css = current.batch
+      ? `body{margin:8mm;font-family:sans-serif}.g{display:grid;grid-template-columns:repeat(${byId[current.fmt].group === '1d' ? 3 : 4},1fr);gap:6mm}.c{break-inside:avoid;display:grid;place-items:center;border:1px dashed #ddd;padding:3mm}img{max-width:100%;image-rendering:pixelated}`
+      : `body{margin:0;display:grid;place-items:center;min-height:100vh}img{max-width:80vw;max-height:80vh;image-rendering:pixelated}`;
+    w.document.write(`<!doctype html><title>${esc(fileName('png'))}</title><style>${css}</style><div class="g">${imgs}</div>` +
+      `<script>Promise.all([...document.images].map(i=>i.decode().catch(()=>{}))).then(()=>setTimeout(print,150))<\/script>`);
     w.document.close();
     saveHistory(true);
   }
 
   $('copyImg').addEventListener('click', copyImage);
-  el.preview.addEventListener('click', () => current && copyImage());
+  el.preview.addEventListener('click', async e => {
+    if (!current) return;
+    if (!current.batch) return copyImage();
+    const save = e.target.closest('.b-save');
+    const card = e.target.closest('.b-item');
+    if (save) {
+      const it = current.items[+save.dataset.k];
+      download(await canvasBlob(it.canvas), itemName(it)); toast(`บันทึกอันที่ ${it.n} แล้ว`);
+    } else if (card && card.dataset.k) {
+      const it = current.items[+card.dataset.k];
+      copyCanvas(it.canvas, itemName(it), `คัดลอกอันที่ ${it.n} แล้ว`);
+    }
+  });
   $('savePng').addEventListener('click', savePng);
   $('saveSvg').addEventListener('click', saveSvg);
   $('copyText').addEventListener('click', () => { if (el.text.value) { copyTextValue(el.text.value); saveHistory(true); } });
   $('printBtn').addEventListener('click', printCode);
-  if (navigator.share) { $('shareBtn').hidden = false; $('shareBtn').addEventListener('click', share); }
+  if (navigator.share) {
+    $('shareBtn').hidden = false;
+    $('shareBtn').addEventListener('click', async () => { if (!(await share())) toast('อุปกรณ์นี้แชร์รูปไม่ได้', true); });
+  }
 
   // ---------- แถบปุ่มด้านล่าง (มือถือ) — โผล่เมื่อเลื่อนจนไม่เห็นตัวอย่าง ----------
   const mbar = $('mbar');
@@ -536,13 +723,7 @@
   $('mCopy').addEventListener('click', copyImage);
   // มือถือที่แชร์ไฟล์ได้: ใช้หน้าแชร์ (มีปุ่ม "บันทึกรูปภาพ") แทนการดาวน์โหลด
   $('mSave').addEventListener('click', async () => {
-    if (isTouch && current && navigator.canShare) {
-      const file = new File([await canvasBlob(current.canvas)], fileName('png'), { type: 'image/png' });
-      if (navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file] }); saveHistory(true); } catch { /* ยกเลิก */ }
-        return;
-      }
-    }
+    if (isTouch && navigator.share && (await share())) return;
     savePng();
   });
   $('mbarThumb').addEventListener('click', () => el.preview.scrollIntoView({ behavior: 'smooth', block: 'center' }));
@@ -611,8 +792,12 @@
   $('barH').addEventListener('input', e => updateSetting('barH', +e.target.value));
   $('sizeSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) updateSetting('size', b.dataset.v); });
   $('ecSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b && !b.disabled) updateSetting('ec', b.dataset.v); });
+  $('splitRow').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    S.split = b.dataset.v; store.set(LS_SET, S); renderAll(true);
+  });
   $('resetSettings').addEventListener('click', () => {
-    const fmt = S.fmt; S = { ...DEFAULTS, fmt }; store.set(LS_SET, S); clearLogo(); syncSettingsUI(); renderAll(true);
+    const { fmt, split } = S; S = { ...DEFAULTS, fmt, split }; store.set(LS_SET, S); clearLogo(); syncSettingsUI(); renderAll(true);
   });
   $('logoFile').addEventListener('change', e => {
     const file = e.target.files[0]; if (!file) return;

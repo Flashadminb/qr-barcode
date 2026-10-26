@@ -1,5 +1,5 @@
 /* ให้เปิดใช้ได้แม้ไม่มีอินเทอร์เน็ต — เปลี่ยนเลขเวอร์ชันทุกครั้งที่อัปเดตไฟล์ */
-const CACHE = 'qrb-v3';
+const CACHE = 'qrb-v4';
 const CORE = [
   './', './index.html', './style.css', './app.js', './manifest.webmanifest', './icon-192.png',
   'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js',
