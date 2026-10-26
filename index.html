@@ -2,11 +2,21 @@
 <html lang="th">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>สร้าง QR & Barcode</title>
   <meta name="description" content="พิมพ์หรือวางข้อความ แล้วได้ QR Code และบาร์โค้ดทันที คัดลอกหรือบันทึกเป็นรูปได้ในคลิกเดียว">
   <meta name="theme-color" content="#f4f3ef">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232d6a5f'/%3E%3Cpath fill='%23fff' d='M7 7h7v7H7zM18 7h7v7h-7zM7 18h7v7H7zM18 18h3v3h-3zM22 22h3v3h-3zM18 23h3v2h-3zM23 18h2v3h-2z'/%3E%3C/svg%3E">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="QR & Barcode">
+  <meta name="format-detection" content="telephone=no">
+  <meta property="og:title" content="สร้าง QR & Barcode">
+  <meta property="og:description" content="พิมพ์หรือวาง → ได้โค้ดทันที → คัดลอกหรือบันทึกรูปในคลิกเดียว">
+  <meta property="og:image" content="https://flashadminb.github.io/qr-barcode/icon-512.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
@@ -24,7 +34,7 @@
   </header>
 
   <main class="layout">
-    <!-- ฝั่งซ้าย: ใส่ข้อมูล -->
+    <!-- ใส่ข้อมูล -->
     <section class="card input-card">
       <div class="tabs" id="templateTabs" role="tablist">
         <button class="tab active" data-tpl="text">ข้อความ / ลิงก์</button>
@@ -60,21 +70,69 @@
       </div>
 
       <div class="input-wrap">
-        <textarea id="text" rows="4" placeholder="พิมพ์หรือวางข้อความ ลิงก์ หรือตัวเลขที่นี่…" spellcheck="false" autofocus></textarea>
+        <textarea id="text" rows="3" placeholder="พิมพ์หรือวางข้อความ ลิงก์ หรือตัวเลขที่นี่…" spellcheck="false" enterkeyhint="done"></textarea>
         <div class="input-tools">
           <span class="count" id="count">0 ตัวอักษร</span>
           <button class="ghost sm" id="pasteBtn" title="วางจากคลิปบอร์ด">วาง</button>
-          <button class="ghost sm" id="clearBtn" title="ล้างข้อความ">ล้าง</button>
+          <button class="ghost sm" id="clearBtn" title="ล้างทั้งหมด">ล้าง</button>
         </div>
       </div>
 
-      <div class="fmt-block">
-        <div class="fmt-label">แบบ 2 มิติ</div>
-        <div class="chips" id="chips2d"></div>
-        <div class="fmt-label">บาร์โค้ดแบบเส้น</div>
-        <div class="chips" id="chips1d"></div>
-        <p class="hint" id="fmtHint"></p>
+      <div class="labels">
+        <label>
+          <span class="lab-title"><span class="lab-ico" aria-hidden="true">↑</span> หัวข้อด้านบนรูป <span class="opt">ไม่ใส่ก็ได้</span></span>
+          <input id="topText" maxlength="80" placeholder="เช่น Wi‑Fi ร้าน, เมนูอาหาร, ชำระเงิน" enterkeyhint="next">
+        </label>
+        <label>
+          <span class="lab-title"><span class="lab-ico" aria-hidden="true">↓</span> ชื่อ / คำอธิบายด้านล่างรูป <span class="opt">ไม่ใส่ก็ได้</span></span>
+          <input id="bottomText" maxlength="120" placeholder="เช่น สแกนเพื่อดูเมนู, รหัสสินค้า A‑01" enterkeyhint="done">
+        </label>
       </div>
+    </section>
+
+    <!-- ตัวอย่าง -->
+    <section class="card preview-card" id="previewCard">
+      <div class="preview-head">
+        <span class="badge" id="fmtBadge">QR Code</span>
+        <span class="mini" id="dimInfo"></span>
+      </div>
+      <div class="preview" id="preview" title="คลิกเพื่อคัดลอกรูป">
+        <div class="empty" id="emptyState">
+          <div class="empty-icon" aria-hidden="true"></div>
+          <p>ตัวอย่างจะขึ้นตรงนี้ทันทีที่พิมพ์</p>
+        </div>
+        <div class="err" id="errState" hidden></div>
+        <div class="stage" id="stage" hidden></div>
+        <div class="tap-hint" id="tapHint" hidden>คลิกที่รูปเพื่อคัดลอก</div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="copyImg" disabled>
+          <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+          คัดลอกรูป
+        </button>
+        <button class="primary alt" id="savePng" disabled>
+          <svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+          บันทึก PNG
+        </button>
+        <button class="ghost" id="shareBtn" disabled hidden>แชร์ / บันทึกลงรูปภาพ</button>
+        <button class="ghost" id="saveSvg" disabled>SVG</button>
+        <button class="ghost" id="copyText" disabled>คัดลอกข้อความ</button>
+        <button class="ghost" id="printBtn" disabled>พิมพ์</button>
+      </div>
+      <p class="mini kbd-hint">คีย์ลัด: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> คัดลอกรูป · <kbd>Ctrl</kbd>+<kbd>S</kbd> บันทึก PNG</p>
+    </section>
+
+    <!-- เลือกแบบ -->
+    <section class="card formats-card">
+      <div class="sec-head">
+        <h2>เลือกแบบโค้ด</h2>
+        <span class="mini legend"><span class="rec-dot"></span> แนะนำสำหรับข้อความนี้ · สีจาง = ใช้ไม่ได้</span>
+      </div>
+      <div class="fmt-label">แบบ 2 มิติ (สแกนด้วยมือถือ)</div>
+      <div class="chips" id="chips2d"></div>
+      <div class="fmt-label">บาร์โค้ดแบบเส้น (เครื่องยิงบาร์โค้ด)</div>
+      <div class="chips" id="chips1d"></div>
+      <p class="hint" id="fmtHint"></p>
 
       <details class="settings" id="settingsBox">
         <summary>ตั้งค่าสี ขนาด และอื่นๆ</summary>
@@ -107,38 +165,6 @@
       </details>
     </section>
 
-    <!-- ฝั่งขวา: ตัวอย่าง -->
-    <section class="card preview-card">
-      <div class="preview-head">
-        <span class="badge" id="fmtBadge">QR Code</span>
-        <span class="mini" id="dimInfo"></span>
-      </div>
-      <div class="preview" id="preview" title="คลิกเพื่อคัดลอกรูป">
-        <div class="empty" id="emptyState">
-          <div class="empty-icon" aria-hidden="true"></div>
-          <p>ตัวอย่างจะขึ้นตรงนี้ทันทีที่พิมพ์</p>
-        </div>
-        <div class="err" id="errState" hidden></div>
-        <div class="stage" id="stage" hidden></div>
-        <div class="tap-hint" id="tapHint" hidden>คลิกที่รูปเพื่อคัดลอก</div>
-      </div>
-      <div class="actions">
-        <button class="primary" id="copyImg" disabled>
-          <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
-          คัดลอกรูป
-        </button>
-        <button class="primary alt" id="savePng" disabled>
-          <svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
-          บันทึก PNG
-        </button>
-        <button class="ghost" id="saveSvg" disabled>SVG</button>
-        <button class="ghost" id="copyText" disabled>คัดลอกข้อความ</button>
-        <button class="ghost" id="shareBtn" disabled hidden>แชร์</button>
-        <button class="ghost" id="printBtn" disabled>พิมพ์</button>
-      </div>
-      <p class="mini kbd-hint">คีย์ลัด: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> คัดลอกรูป · <kbd>Ctrl</kbd>+<kbd>S</kbd> บันทึก PNG</p>
-    </section>
-
     <!-- ตัวอย่างทุกแบบ -->
     <section class="card gallery-card" id="galleryCard" hidden>
       <div class="sec-head">
@@ -162,7 +188,18 @@
     </section>
   </main>
 
-  <footer class="foot">ทำงานในเบราว์เซอร์ทั้งหมด · ข้อมูลไม่ถูกส่งไปเซิร์ฟเวอร์</footer>
+  <footer class="foot">
+    ทำงานในเบราว์เซอร์ทั้งหมด · ข้อมูลไม่ถูกส่งไปเซิร์ฟเวอร์
+    <button class="ghost sm" id="installBtn" hidden>ติดตั้งเป็นแอพ</button>
+    <span id="iosInstall" hidden>· บน iPhone: กด <b>แชร์</b> → <b>เพิ่มไปยังหน้าจอโฮม</b> เพื่อใช้เหมือนแอพ</span>
+  </footer>
+
+  <!-- แถบปุ่มลัดด้านล่าง (มือถือ) -->
+  <div class="mbar" id="mbar" hidden>
+    <button class="mbar-thumb" id="mbarThumb" aria-label="ดูตัวอย่าง"></button>
+    <button class="primary" id="mCopy">คัดลอกรูป</button>
+    <button class="primary alt" id="mSave">บันทึก</button>
+  </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

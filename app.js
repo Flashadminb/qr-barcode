@@ -21,7 +21,17 @@
     { id: 'MSI', name: 'MSI', group: '1d', engine: 'jsb', rule: 'ตัวเลขเท่านั้น · ป้ายชั้นวางสินค้า' },
     { id: 'pharmacode', name: 'Pharmacode', group: '1d', engine: 'jsb', rule: 'ตัวเลข 3–131070 · บรรจุภัณฑ์ยา' },
   ];
+  // ใช้กับอะไร (แสดงใต้ชื่อแต่ละแบบ)
+  const USE = {
+    qr: 'ลิงก์ · ข้อความไทย · ทั่วไป', datamatrix: 'ชิ้นส่วน · ยา · อุปกรณ์', pdf417: 'บัตร · ใบขับขี่ · ตั๋ว',
+    aztec: 'ตั๋วรถไฟ · บอร์ดดิ้งพาส', CODE128: 'ทั่วไป · อังกฤษ+ตัวเลข', EAN13: 'สินค้าขายปลีก 13 หลัก',
+    EAN8: 'สินค้าชิ้นเล็ก 8 หลัก', UPC: 'สินค้าอเมริกา 12 หลัก', UPCE: 'UPC แบบย่อ 8 หลัก',
+    CODE39: 'โรงงาน · ราชการ', CODE93: 'Code 39 แบบกระชับ', ITF14: 'ลังสินค้า 14 หลัก',
+    ITF: 'คลังสินค้า · เลขคู่', codabar: 'ห้องสมุด · ธนาคารเลือด', MSI: 'ป้ายชั้นวางสินค้า', pharmacode: 'บรรจุภัณฑ์ยา',
+  };
+  FORMATS.forEach(f => { f.use = USE[f.id]; });
   const byId = Object.fromEntries(FORMATS.map(f => [f.id, f]));
+  const isTouch = matchMedia('(hover: none)').matches;
 
   const SIZES = {
     s: { qr: 300, bar: 2, bw: 3 },
@@ -47,7 +57,7 @@
 
   const $ = id => document.getElementById(id);
   const el = {
-    text: $('text'), count: $('count'), chips2d: $('chips2d'), chips1d: $('chips1d'), hint: $('fmtHint'),
+    text: $('text'), topText: $('topText'), bottomText: $('bottomText'), count: $('count'), chips2d: $('chips2d'), chips1d: $('chips1d'), hint: $('fmtHint'),
     preview: $('preview'), stage: $('stage'), empty: $('emptyState'), err: $('errState'), tapHint: $('tapHint'),
     badge: $('fmtBadge'), dim: $('dimInfo'), gallery: $('gallery'), galleryCard: $('galleryCard'),
     history: $('history'), histSearch: $('histSearch'), histCount: $('histCount'), toast: $('toast'),
@@ -128,7 +138,7 @@
     if (!ok) throw new CodeError(`ข้อความนี้ใช้กับ ${f.name} ไม่ได้`, f.rule);
     const svg = () => {
       const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      JsBarcode(s, text, { ...opts, valid: undefined });
+      JsBarcode(s, text, { ...opts, valid: () => {} });
       s.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       return new XMLSerializer().serializeToString(s);
     };
@@ -158,6 +168,79 @@
     return makeBwip(f, text, thumb);
   }
 
+  // ---------- หัวข้อด้านบน / ชื่อด้านล่าง ----------
+  const FONT = '"IBM Plex Sans Thai", Sarabun, system-ui, sans-serif';
+  const segment = (t, g) => typeof Intl.Segmenter === 'function'
+    ? [...new Intl.Segmenter('th', { granularity: g }).segment(t)].map(s => s.segment)
+    : (g === 'word' ? t.split(/(\s+)/) : [...t]);
+
+  // ตัดบรรทัดตามคำ (รองรับภาษาไทย) ไม่เกิน maxLines บรรทัด
+  function wrapLines(ctx, text, maxW, maxLines) {
+    const fits = s => ctx.measureText(s).width <= maxW;
+    const pieces = [];
+    segment(text, 'word').forEach(w => (fits(w) ? pieces.push(w) : pieces.push(...segment(w, 'grapheme'))));
+    const lines = [];
+    let line = '';
+    for (const p of pieces) {
+      if (!line || fits(line + p)) line += p;
+      else { lines.push(line.trim()); line = p.trimStart(); }
+    }
+    if (line.trim()) lines.push(line.trim());
+    if (lines.length > maxLines) {
+      lines.length = maxLines;
+      let last = lines[maxLines - 1];
+      while (last && !fits(last + '…')) last = [...last].slice(0, -1).join('');
+      lines[maxLines - 1] = last + '…';
+    }
+    return lines;
+  }
+
+  function decorate(out) {
+    const top = el.topText.value.trim(), bot = el.bottomText.value.trim();
+    if (!top && !bot) return out;
+    const src = out.canvas, W = src.width;
+    const base = Math.max(15, Math.round(Math.min(W, 1000) * 0.06));
+    const topSize = Math.round(base * 1.15), botSize = Math.round(base * 0.95);
+    const lh = s => Math.round(s * 1.45);
+    const pad = Math.round(base * 0.7), maxW = W - pad * 2;
+    const m = document.createElement('canvas').getContext('2d');
+    m.font = `600 ${topSize}px ${FONT}`;
+    const topLines = top ? wrapLines(m, top, maxW, 3) : [];
+    m.font = `400 ${botSize}px ${FONT}`;
+    const botLines = bot ? wrapLines(m, bot, maxW, 3) : [];
+    const topH = topLines.length ? pad + topLines.length * lh(topSize) : 0;
+    const gap = botLines.length ? Math.round(base * 0.3) : 0;
+    const botH = botLines.length ? gap + botLines.length * lh(botSize) + pad : 0;
+    const H = topH + src.height + botH;
+
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    if (!S.transparent) { ctx.fillStyle = S.bg; ctx.fillRect(0, 0, W, H); }
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(src, 0, topH);
+    ctx.fillStyle = S.fg; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `600 ${topSize}px ${FONT}`;
+    topLines.forEach((l, i) => ctx.fillText(l, W / 2, pad + i * lh(topSize) + lh(topSize) / 2));
+    ctx.font = `400 ${botSize}px ${FONT}`;
+    botLines.forEach((l, i) => ctx.fillText(l, W / 2, topH + src.height + gap + i * lh(botSize) + lh(botSize) / 2));
+
+    const svgText = (lines, size, weight, y0) => lines.map((l, i) =>
+      `<text x="${W / 2}" y="${y0 + i * lh(size) + lh(size) / 2}" font-size="${size}" font-weight="${weight}" text-anchor="middle" dominant-baseline="central" font-family='${FONT}' fill="${S.fg}">${esc(l)}</text>`).join('');
+    const svg = () => {
+      const inner = new DOMParser().parseFromString(out.svg(), 'image/svg+xml').documentElement;
+      const iw = parseFloat(inner.getAttribute('width')), ih = parseFloat(inner.getAttribute('height'));
+      if (!inner.getAttribute('viewBox') && iw && ih) inner.setAttribute('viewBox', `0 0 ${iw} ${ih}`);
+      inner.setAttribute('x', 0); inner.setAttribute('y', topH);
+      inner.setAttribute('width', W); inner.setAttribute('height', src.height);
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+        (S.transparent ? '' : `<rect width="100%" height="100%" fill="${S.bg}"/>`) +
+        svgText(topLines, topSize, 600, pad) + new XMLSerializer().serializeToString(inner) +
+        svgText(botLines, botSize, 400, topH + src.height + gap) + '</svg>';
+    };
+    return { canvas: c, svg, pixel: out.pixel };
+  }
+
   function roundRect(ctx, x, y, w, h, r) {
     ctx.beginPath(); ctx.moveTo(x + r, y);
     ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
@@ -182,8 +265,9 @@
       FORMATS.filter(f => f.group === group).forEach(f => {
         const b = document.createElement('button');
         b.className = 'chip' + (f.id === S.fmt ? ' active' : '');
-        b.textContent = f.name; b.dataset.fmt = f.id; b.title = f.rule;
-        if (text && f.engine === 'jsb') {
+        b.dataset.fmt = f.id;
+        b.innerHTML = `<span class="c-name">${esc(f.name)}</span><span class="c-use">${esc(f.use)}</span>`;
+        if (text && (f.engine === 'jsb' || (f.group === '1d' && !isAscii(text)))) {
           try { makeJsbCheck(f, text); } catch { b.classList.add('bad'); }
         }
         if (f.id === rec) { const r = document.createElement('span'); r.className = 'rec'; r.textContent = 'แนะนำ'; b.appendChild(r); }
@@ -196,6 +280,7 @@
   // ตรวจเร็วๆ ว่าใช้กับบาร์โค้ดเส้นได้ไหม (ไม่ต้องวาดจริง)
   function makeJsbCheck(f, text) {
     if (!isAscii(text)) throw 0;
+    if (f.engine !== 'jsb') return;
     let ok = true;
     JsBarcode(document.createElementNS('http://www.w3.org/2000/svg', 'svg'), text, { format: f.id, valid: v => { ok = v; } });
     if (!ok) throw 0;
@@ -216,19 +301,25 @@
     current = null;
     el.stage.hidden = el.err.hidden = true; el.empty.hidden = true; el.tapHint.hidden = true;
     el.preview.classList.remove('ready'); el.dim.textContent = '';
-    if (!text) { el.empty.hidden = false; setActionsEnabled(false); return; }
+    if (!text) { el.empty.hidden = false; setActionsEnabled(false); updateMbar(); return; }
 
     try {
-      const out = build(S.fmt, text);
-      out.canvas.classList.toggle('pixel', out.pixel);
-      el.stage.replaceChildren(out.canvas);
+      const out = decorate(build(S.fmt, text));
+      // แสดงเป็นรูป <img> เพื่อให้มือถือกดค้างแล้ว "บันทึกรูป" ได้
+      const img = new Image();
+      img.src = out.canvas.toDataURL('image/png');
+      img.alt = text;
+      img.classList.toggle('pixel', out.pixel);
+      el.stage.replaceChildren(img);
       el.stage.hidden = false; el.tapHint.hidden = false;
       el.preview.classList.add('ready');
       el.dim.textContent = `${out.canvas.width} × ${out.canvas.height} px`;
-      current = { ...out, fmt: S.fmt, text };
+      current = { ...out, fmt: S.fmt, text, dataUrl: img.src };
       setActionsEnabled(true);
+      updateMbar();
     } catch (e) {
       setActionsEnabled(false);
+      updateMbar();
       el.actionBtns[3].disabled = false; // คัดลอกข้อความยังใช้ได้
       if (e.message === 'loading') {
         el.err.innerHTML = '<span style="color:var(--muted)">กำลังโหลดตัวสร้าง…</span>';
@@ -260,7 +351,8 @@
           img.innerHTML = `<span class="no">${e.message === 'loading' ? 'กำลังโหลด…' : 'ใช้ไม่ได้กับข้อความนี้'}</span>`;
         }
         const name = document.createElement('div'); name.className = 'g-name'; name.textContent = f.name;
-        b.append(img, name);
+        const use = document.createElement('div'); use.className = 'g-use'; use.textContent = f.use;
+        b.append(img, name, use);
         el.gallery.appendChild(b);
       });
       if (needBwip) loadBwip().then(renderGallery).catch(() => {});
@@ -280,17 +372,18 @@
     const text = el.text.value.trim();
     if (!text) return;
     const now = Date.now();
+    const extra = { fmt: S.fmt, top: el.topText.value.trim(), bot: el.bottomText.value.trim(), t: now };
     const same = history.findIndex(h => h.text === text);
     if (same >= 0) {
       const [h] = history.splice(same, 1);
-      h.t = now; h.fmt = S.fmt; history.unshift(h);
+      Object.assign(h, extra); history.unshift(h);
     } else {
       const top = history[0];
       if (!manual && top && top.id === draftId && !top.pin && (text.startsWith(top.text) || top.text.startsWith(text))) {
-        top.text = text; top.fmt = S.fmt; top.t = now;
+        Object.assign(top, extra, { text });
       } else {
         const id = now.toString(36) + Math.random().toString(36).slice(2, 6);
-        history.unshift({ id, text, fmt: S.fmt, t: now, pin: false });
+        history.unshift({ id, text, pin: false, ...extra });
         draftId = id;
       }
     }
@@ -315,7 +408,7 @@
   function renderHistory() {
     const q = el.histSearch.value.trim().toLowerCase();
     const list = [...history].sort((a, b) => (b.pin - a.pin) || (b.t - a.t))
-      .filter(h => !q || h.text.toLowerCase().includes(q));
+      .filter(h => !q || [h.text, h.top, h.bot].some(s => s && s.toLowerCase().includes(q)));
     el.histCount.textContent = history.length ? `(${history.length})` : '';
     if (!list.length) {
       el.history.innerHTML = `<li class="h-empty">${history.length ? 'ไม่พบคำที่ค้นหา' : 'ยังไม่มีประวัติ — ข้อความที่สร้างจะถูกจำไว้ที่นี่อัตโนมัติ'}</li>`;
@@ -324,6 +417,7 @@
     el.history.innerHTML = list.map(h => `
       <li class="h-item" data-id="${h.id}">
         <button class="h-main" data-act="load" title="${esc(h.text)}">
+          ${h.top || h.bot ? `<span class="h-label">${esc([h.top, h.bot].filter(Boolean).join(' · '))}</span>` : ''}
           <span class="h-text">${esc(h.text.replace(/\s+/g, ' '))}</span>
           <span class="h-meta">${esc(byId[h.fmt]?.name || 'QR Code')} · ${timeAgo(h.t)}</span>
         </button>
@@ -341,6 +435,7 @@
     if (act === 'load') {
       setTemplate('text');
       el.text.value = h.text; draftId = null;
+      el.topText.value = h.top || ''; el.bottomText.value = h.bot || '';
       if (byId[h.fmt]) setFmt(h.fmt, false);
       renderAll(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -357,7 +452,8 @@
 
   // ---------- ปุ่มต่างๆ ----------
   function fileName(ext) {
-    const base = (current?.text || 'code').replace(/^https?:\/\//, '').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 32) || 'code';
+    const label = el.topText.value.trim() || el.bottomText.value.trim();
+    const base = (label || current?.text || 'code').replace(/^https?:\/\//, '').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 32) || 'code';
     return `${current.fmt === 'qr' ? 'qr' : current.fmt.toLowerCase()}-${base}.${ext}`;
   }
   const canvasBlob = c => new Promise(r => c.toBlob(r, 'image/png'));
@@ -375,7 +471,7 @@
     try {
       if (!navigator.clipboard?.write || !window.ClipboardItem) throw 0;
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': canvasBlob(current.canvas) })]);
-      toast('คัดลอกรูปแล้ว — วางได้เลย (Ctrl+V)');
+      toast(isTouch ? 'คัดลอกรูปแล้ว — กดค้างในแชทเพื่อวาง' : 'คัดลอกรูปแล้ว — วางได้เลย (Ctrl+V)');
     } catch {
       download(await canvasBlob(current.canvas), fileName('png'));
       toast('เบราว์เซอร์นี้คัดลอกรูปไม่ได้ จึงบันทึกเป็นไฟล์ให้แทน');
@@ -410,7 +506,7 @@
   }
   function printCode() {
     if (!current) return;
-    const url = current.canvas.toDataURL('image/png');
+    const url = current.dataUrl;
     const w = window.open('', '_blank');
     if (!w) return toast('เบราว์เซอร์บล็อกหน้าต่างพิมพ์', true);
     w.document.write(`<!doctype html><title>${esc(current.text.slice(0, 40))}</title><style>body{margin:0;display:grid;place-items:center;min-height:100vh}img{max-width:80vw;max-height:80vh;image-rendering:pixelated}</style><img src="${url}" onload="setTimeout(()=>{print()},100)">`);
@@ -425,6 +521,31 @@
   $('copyText').addEventListener('click', () => { if (el.text.value) { copyTextValue(el.text.value); saveHistory(true); } });
   $('printBtn').addEventListener('click', printCode);
   if (navigator.share) { $('shareBtn').hidden = false; $('shareBtn').addEventListener('click', share); }
+
+  // ---------- แถบปุ่มด้านล่าง (มือถือ) — โผล่เมื่อเลื่อนจนไม่เห็นตัวอย่าง ----------
+  const mbar = $('mbar');
+  let previewVisible = true;
+  function updateMbar() {
+    mbar.hidden = !current || previewVisible;
+    if (current) $('mbarThumb').style.backgroundImage = `url("${current.dataUrl}")`;
+  }
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(([en]) => { previewVisible = en.isIntersecting; updateMbar(); }, { threshold: 0.25 })
+      .observe(el.preview);
+  }
+  $('mCopy').addEventListener('click', copyImage);
+  // มือถือที่แชร์ไฟล์ได้: ใช้หน้าแชร์ (มีปุ่ม "บันทึกรูปภาพ") แทนการดาวน์โหลด
+  $('mSave').addEventListener('click', async () => {
+    if (isTouch && current && navigator.canShare) {
+      const file = new File([await canvasBlob(current.canvas)], fileName('png'), { type: 'image/png' });
+      if (navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); saveHistory(true); } catch { /* ยกเลิก */ }
+        return;
+      }
+    }
+    savePng();
+  });
+  $('mbarThumb').addEventListener('click', () => el.preview.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 
   document.addEventListener('keydown', e => {
     const mod = e.ctrlKey || e.metaKey;
@@ -447,7 +568,16 @@
       toast('วางแล้ว');
     } catch { el.text.focus(); toast('กด Ctrl+V เพื่อวางในช่องข้อความ'); }
   });
-  $('clearBtn').addEventListener('click', () => { el.text.value = ''; draftId = null; renderAll(true); el.text.focus(); });
+  $('clearBtn').addEventListener('click', () => {
+    el.text.value = el.topText.value = el.bottomText.value = ''; draftId = null; renderAll(true); el.text.focus();
+  });
+  [el.topText, el.bottomText].forEach(i => {
+    i.addEventListener('input', () => {
+      clearTimeout(mainTimer); mainTimer = setTimeout(renderMain, 60);
+      clearTimeout(autoTimer); autoTimer = setTimeout(() => saveHistory(false), 1500);
+    });
+    i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); i === el.topText ? el.bottomText.focus() : i.blur(); } });
+  });
 
   // ---------- เลือกรูปแบบ ----------
   function setFmt(id, render = true) {
@@ -580,9 +710,28 @@
   // ---------- เริ่มต้น ----------
   const params = new URLSearchParams(location.search);
   if (params.get('t')) el.text.value = params.get('t');
+  if (params.get('top')) el.topText.value = params.get('top');
+  if (params.get('bottom')) el.bottomText.value = params.get('bottom');
   syncSettingsUI();
   renderHistory();
   renderAll(true);
   if (byId[S.fmt].engine === 'bwip') loadBwip().then(() => renderAll(true)).catch(() => {});
   setInterval(renderHistory, 60000);
+  if (!isTouch) el.text.focus(); // มือถือไม่เด้งคีย์บอร์ดเอง
+  if (isTouch) el.tapHint.textContent = 'แตะเพื่อคัดลอก · กดค้างเพื่อบันทึกรูป';
+  // วาดหัวข้อใหม่เมื่อฟอนต์ไทยโหลดเสร็จ
+  document.fonts?.load(`600 20px "IBM Plex Sans Thai"`).then(() => renderMain()).catch(() => {});
+
+  // ---------- ติดตั้งเป็นแอพ + ใช้งานออฟไลน์ ----------
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+  let installEvt = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('installBtn').hidden = false; });
+  $('installBtn').addEventListener('click', async () => {
+    if (!installEvt) return;
+    installEvt.prompt(); await installEvt.userChoice; installEvt = null; $('installBtn').hidden = true;
+  });
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !standalone) $('iosInstall').hidden = false;
 })();
