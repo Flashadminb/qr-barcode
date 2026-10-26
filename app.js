@@ -393,6 +393,31 @@
     });
     if (needLoad) loadBwip().then(() => renderAll(true)).catch(() => toast('โหลดไม่สำเร็จ ตรวจสอบอินเทอร์เน็ต', true));
 
+    // ปรับขนาดตามจำนวน: น้อยอัน = ใหญ่เต็มกรอบ, เยอะ = ช่องเล็กเรียงไปเรื่อยๆ
+    // ลองทุกจำนวนคอลัมน์ แล้วเลือกแบบที่รูปใหญ่ที่สุดโดยไม่ล้นกรอบ
+    const n = items.length;
+    if (done.length) {
+      const W = el.preview.clientWidth - 24 - 2;
+      el.preview.classList.add('batch');
+      const maxH = (parseFloat(getComputedStyle(el.preview).maxHeight) || 560) - 24 - 4;
+      const iw = Math.max(...done.map(d => d.canvas.width)), ih = Math.max(...done.map(d => d.canvas.height));
+      const wide = byId[S.fmt].group === '1d';
+      const gap = 10, pad = 26, chrome = 58;
+      let best = null;
+      for (let cols = 1; cols <= Math.min(n, 6); cols++) {
+        const rows = Math.ceil(n / cols);
+        const cw = (W - gap * (cols - 1)) / cols - pad, chH = (maxH - gap * (rows - 1)) / rows - chrome;
+        const s = Math.min(cw / iw, chH / ih, 1.6);
+        // บาร์โค้ดเส้น: ชอบเรียงต่อกันลงด้านล่างมากกว่า
+        const score = s * (wide ? 1 + 0.35 / cols : 1);
+        if (s > 0 && (!best || score > best.score)) best = { cols, s, score };
+      }
+      if (best && Math.min(iw, ih) * best.s >= 80) {
+        grid.classList.add('fit');
+        grid.style.gridTemplateColumns = `repeat(${best.cols}, minmax(0, 1fr))`;
+        grid.style.setProperty('--img-h', Math.floor(ih * best.s) + 'px');
+      }
+    }
     el.stage.replaceChildren(grid);
     el.stage.hidden = false;
     const bad = items.length - done.length;
@@ -902,6 +927,11 @@
   renderAll(true);
   if (byId[S.fmt].engine === 'bwip') loadBwip().then(() => renderAll(true)).catch(() => {});
   setInterval(renderHistory, 60000);
+  let resizeTimer, lastW = innerWidth;
+  addEventListener('resize', () => {
+    if (innerWidth === lastW || !current?.batch) return; // มือถือเลื่อนแถบที่อยู่ = ไม่ต้องวาดใหม่
+    lastW = innerWidth; clearTimeout(resizeTimer); resizeTimer = setTimeout(renderMain, 200);
+  });
   if (!isTouch) el.text.focus(); // มือถือไม่เด้งคีย์บอร์ดเอง
   if (isTouch) el.tapHint.textContent = 'แตะเพื่อคัดลอก · กดค้างเพื่อบันทึกรูป';
   // วาดหัวข้อใหม่เมื่อฟอนต์ไทยโหลดเสร็จ
