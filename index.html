@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>สร้าง QR & Barcode</title>
+  <meta name="description" content="พิมพ์หรือวางข้อความ แล้วได้ QR Code และบาร์โค้ดทันที คัดลอกหรือบันทึกเป็นรูปได้ในคลิกเดียว">
+  <meta name="theme-color" content="#f4f3ef">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232d6a5f'/%3E%3Cpath fill='%23fff' d='M7 7h7v7H7zM18 7h7v7h-7zM7 18h7v7H7zM18 18h3v3h-3zM22 22h3v3h-3zM18 23h3v2h-3zM23 18h2v3h-2z'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>สร้าง QR &amp; Barcode</h1>
+        <p class="sub">พิมพ์หรือวาง → ได้โค้ดทันที → คลิกเดียวคัดลอกหรือบันทึก</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ฝั่งซ้าย: ใส่ข้อมูล -->
+    <section class="card input-card">
+      <div class="tabs" id="templateTabs" role="tablist">
+        <button class="tab active" data-tpl="text">ข้อความ / ลิงก์</button>
+        <button class="tab" data-tpl="wifi">Wi‑Fi</button>
+        <button class="tab" data-tpl="promptpay">พร้อมเพย์</button>
+        <button class="tab" data-tpl="phone">โทร / SMS</button>
+        <button class="tab" data-tpl="email">อีเมล</button>
+      </div>
+
+      <!-- ฟอร์มช่วยกรอก -->
+      <div class="tpl-form" id="tpl-wifi" hidden>
+        <label>ชื่อ Wi‑Fi (SSID)<input data-f="ssid" autocomplete="off"></label>
+        <label>รหัสผ่าน<input data-f="pass" autocomplete="off"></label>
+        <div class="row2">
+          <label>ความปลอดภัย
+            <select data-f="enc"><option value="WPA">WPA/WPA2/WPA3</option><option value="WEP">WEP</option><option value="nopass">ไม่มีรหัส</option></select>
+          </label>
+          <label class="check"><input type="checkbox" data-f="hidden"> เครือข่ายซ่อน</label>
+        </div>
+      </div>
+      <div class="tpl-form" id="tpl-promptpay" hidden>
+        <label>เบอร์โทร / เลขบัตรประชาชน / เลขผู้เสียภาษี<input data-f="id" inputmode="numeric" placeholder="0812345678"></label>
+        <label>จำนวนเงิน (บาท) — เว้นว่างได้<input data-f="amount" inputmode="decimal" placeholder="เช่น 150"></label>
+      </div>
+      <div class="tpl-form" id="tpl-phone" hidden>
+        <label>เบอร์โทร<input data-f="num" inputmode="tel" placeholder="0812345678"></label>
+        <label>ข้อความ SMS — เว้นว่างถ้าต้องการให้โทร<input data-f="msg"></label>
+      </div>
+      <div class="tpl-form" id="tpl-email" hidden>
+        <label>ถึง<input data-f="to" type="email" placeholder="name@example.com"></label>
+        <label>หัวข้อ<input data-f="subject"></label>
+        <label>ข้อความ<input data-f="body"></label>
+      </div>
+
+      <div class="input-wrap">
+        <textarea id="text" rows="4" placeholder="พิมพ์หรือวางข้อความ ลิงก์ หรือตัวเลขที่นี่…" spellcheck="false" autofocus></textarea>
+        <div class="input-tools">
+          <span class="count" id="count">0 ตัวอักษร</span>
+          <button class="ghost sm" id="pasteBtn" title="วางจากคลิปบอร์ด">วาง</button>
+          <button class="ghost sm" id="clearBtn" title="ล้างข้อความ">ล้าง</button>
+        </div>
+      </div>
+
+      <div class="fmt-block">
+        <div class="fmt-label">แบบ 2 มิติ</div>
+        <div class="chips" id="chips2d"></div>
+        <div class="fmt-label">บาร์โค้ดแบบเส้น</div>
+        <div class="chips" id="chips1d"></div>
+        <p class="hint" id="fmtHint"></p>
+      </div>
+
+      <details class="settings" id="settingsBox">
+        <summary>ตั้งค่าสี ขนาด และอื่นๆ</summary>
+        <div class="set-grid">
+          <label>สีโค้ด<input type="color" id="fg" value="#1f1f1f"></label>
+          <label>สีพื้น<input type="color" id="bg" value="#ffffff"></label>
+          <label class="check"><input type="checkbox" id="transparent"> พื้นโปร่งใส (PNG)</label>
+          <div>
+            <span class="mini">ขนาดไฟล์</span>
+            <div class="seg" id="sizeSeg">
+              <button data-v="s">เล็ก</button><button data-v="m">กลาง</button><button data-v="l">ใหญ่</button>
+            </div>
+          </div>
+          <div class="qr-only">
+            <span class="mini">QR กู้คืนข้อมูล</span>
+            <div class="seg" id="ecSeg">
+              <button data-v="L" title="7%">L</button><button data-v="M" title="15%">M</button><button data-v="Q" title="25%">Q</button><button data-v="H" title="30%">H</button>
+            </div>
+          </div>
+          <label class="qr-only">โลโก้กลาง QR
+            <span class="logo-row">
+              <input type="file" id="logoFile" accept="image/*">
+              <button class="ghost sm" id="logoClear" hidden>เอาออก</button>
+            </span>
+          </label>
+          <label class="bar-only check"><input type="checkbox" id="showText" checked> แสดงตัวเลขใต้บาร์โค้ด</label>
+          <label class="bar-only">ความสูงบาร์โค้ด<input type="range" id="barH" min="40" max="200" value="100"></label>
+        </div>
+        <button class="ghost sm" id="resetSettings">คืนค่าเริ่มต้น</button>
+      </details>
+    </section>
+
+    <!-- ฝั่งขวา: ตัวอย่าง -->
+    <section class="card preview-card">
+      <div class="preview-head">
+        <span class="badge" id="fmtBadge">QR Code</span>
+        <span class="mini" id="dimInfo"></span>
+      </div>
+      <div class="preview" id="preview" title="คลิกเพื่อคัดลอกรูป">
+        <div class="empty" id="emptyState">
+          <div class="empty-icon" aria-hidden="true"></div>
+          <p>ตัวอย่างจะขึ้นตรงนี้ทันทีที่พิมพ์</p>
+        </div>
+        <div class="err" id="errState" hidden></div>
+        <div class="stage" id="stage" hidden></div>
+        <div class="tap-hint" id="tapHint" hidden>คลิกที่รูปเพื่อคัดลอก</div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="copyImg" disabled>
+          <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+          คัดลอกรูป
+        </button>
+        <button class="primary alt" id="savePng" disabled>
+          <svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+          บันทึก PNG
+        </button>
+        <button class="ghost" id="saveSvg" disabled>SVG</button>
+        <button class="ghost" id="copyText" disabled>คัดลอกข้อความ</button>
+        <button class="ghost" id="shareBtn" disabled hidden>แชร์</button>
+        <button class="ghost" id="printBtn" disabled>พิมพ์</button>
+      </div>
+      <p class="mini kbd-hint">คีย์ลัด: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> คัดลอกรูป · <kbd>Ctrl</kbd>+<kbd>S</kbd> บันทึก PNG</p>
+    </section>
+
+    <!-- ตัวอย่างทุกแบบ -->
+    <section class="card gallery-card" id="galleryCard" hidden>
+      <div class="sec-head">
+        <h2>ตัวอย่างทุกแบบ</h2>
+        <span class="mini">แตะเพื่อเลือกแบบนั้น</span>
+      </div>
+      <div class="gallery" id="gallery"></div>
+    </section>
+
+    <!-- ประวัติ -->
+    <section class="card history-card">
+      <div class="sec-head">
+        <h2>ที่เคยสร้าง <span class="mini" id="histCount"></span></h2>
+        <div class="hist-tools">
+          <input id="histSearch" type="search" placeholder="ค้นหา…">
+          <button class="ghost sm" id="histClear">ล้างทั้งหมด</button>
+        </div>
+      </div>
+      <p class="mini">บันทึกไว้ในเครื่องนี้เท่านั้น ไม่มีการส่งข้อมูลออกไปไหน · กด ★ เพื่อปักหมุดไม่ให้ถูกลบ</p>
+      <ul class="history" id="history"></ul>
+    </section>
+  </main>
+
+  <footer class="foot">ทำงานในเบราว์เซอร์ทั้งหมด · ข้อมูลไม่ถูกส่งไปเซิร์ฟเวอร์</footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
